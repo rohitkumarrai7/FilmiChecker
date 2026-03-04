@@ -13,9 +13,9 @@ interface SentimentRequestBody {
 
 // Free models tried in order — if one is unavailable, the next is attempted
 const OPENROUTER_MODELS = [
+  "arcee-ai/trinity-large-preview:free",
   "google/gemma-2-9b-it:free",
   "mistralai/mistral-7b-instruct:free",
-  "qwen/qwen-2.5-7b-instruct:free",
 ];
 
 function buildPrompt(body: SentimentRequestBody): string {
