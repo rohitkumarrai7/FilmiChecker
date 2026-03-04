@@ -14,54 +14,53 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const apiKey = process.env.TMDB_API_KEY;
-  if (!apiKey) {
+  const rapidApiKey = process.env.RAPIDAPI_KEY;
+  if (!rapidApiKey) {
     return NextResponse.json(
-      { message: "TMDB API key not configured" },
+      { message: "RapidAPI key not configured" },
       { status: 500 }
     );
   }
 
   try {
-    // Step 1: Resolve IMDb ID to TMDB movie ID
-    const findResponse = await axios.get(
-      `https://api.themoviedb.org/3/find/${imdbId}`,
+    // Fetch user reviews from RapidAPI IMDb endpoint
+    const response = await axios.get(
+      "https://imdb8.p.rapidapi.com/title/get-user-reviews",
       {
-        params: { api_key: apiKey, external_source: "imdb_id" },
+        params: { tconst: imdbId },
+        headers: {
+          "x-rapidapi-key": rapidApiKey,
+          "x-rapidapi-host": "imdb8.p.rapidapi.com",
+        },
         timeout: 10000,
       }
     );
 
-    const movieResults = findResponse.data?.movie_results;
-    if (!movieResults || movieResults.length === 0) {
-      // No TMDB match — return empty with fallback flag
+    // The API returns reviews under different field names — handle both
+    const rawReviews: Array<Record<string, unknown>> =
+      response.data?.reviews ?? [];
+
+    if (!rawReviews || rawReviews.length === 0) {
       const result: ReviewsData = { reviews: [], fallback: true };
       return NextResponse.json(result);
     }
 
-    const tmdbId: number = movieResults[0].id;
-
-    // Step 2: Fetch user reviews using TMDB movie ID
-    const reviewsResponse = await axios.get(
-      `https://api.themoviedb.org/3/movie/${tmdbId}/reviews`,
-      {
-        params: { api_key: apiKey, language: "en-US", page: 1 },
-        timeout: 10000,
-      }
-    );
-
-    const rawReviews: Array<{ content: string }> =
-      reviewsResponse.data?.results || [];
-
-    if (rawReviews.length === 0) {
-      const result: ReviewsData = { reviews: [], fallback: true };
-      return NextResponse.json(result);
-    }
-
-    // Take first 6 reviews and trim each to 600 chars to keep the AI prompt concise
+    // Extract review text (field is reviewText or content depending on API version)
     const reviews = rawReviews
       .slice(0, 6)
-      .map((r) => r.content.trim().slice(0, 600));
+      .map((r) => {
+        const text =
+          (r.reviewText as string) ||
+          (r.content as string) ||
+          "";
+        return text.trim().slice(0, 600);
+      })
+      .filter(Boolean); // drop any empty strings
+
+    if (reviews.length === 0) {
+      const result: ReviewsData = { reviews: [], fallback: true };
+      return NextResponse.json(result);
+    }
 
     const result: ReviewsData = { reviews, fallback: false };
     return NextResponse.json(result);
@@ -69,13 +68,19 @@ export async function GET(request: NextRequest) {
     if (axios.isAxiosError(error)) {
       if (error.code === "ECONNABORTED") {
         return NextResponse.json(
-          { message: "TMDB request timed out. Please try again." },
+          { message: "RapidAPI request timed out. Please try again." },
           { status: 504 }
         );
       }
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        return NextResponse.json(
+          { message: "Invalid RapidAPI key" },
+          { status: 401 }
+        );
+      }
     }
-    console.error("TMDB API error:", error);
-    // Graceful degradation — return empty fallback so sentiment can still run
+    console.error("RapidAPI IMDb reviews error:", error);
+    // Graceful degradation — Arcee will still run using metadata only
     const result: ReviewsData = { reviews: [], fallback: true };
     return NextResponse.json(result);
   }
