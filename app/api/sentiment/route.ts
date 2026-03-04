@@ -110,8 +110,8 @@ async function callOpenRouter(
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://cinescope.vercel.app",
-            "X-Title": "CineScope",
+            "HTTP-Referer": "https://filmichecker.vercel.app",
+            "X-Title": "FilmiChecker",
           },
           timeout: 30000,
         }

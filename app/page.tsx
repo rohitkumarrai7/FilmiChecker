@@ -34,7 +34,7 @@ export default function HomePage() {
   // Load recent searches from localStorage on first render
   useEffect(() => {
     try {
-      const stored = localStorage.getItem("cinescope_recent");
+      const stored = localStorage.getItem("filmichecker_recent");
       if (stored) setRecentSearches(JSON.parse(stored));
     } catch {
       // localStorage unavailable (SSR / private browsing edge case)
@@ -48,7 +48,7 @@ export default function HomePage() {
         MAX_RECENT
       );
       try {
-        localStorage.setItem("cinescope_recent", JSON.stringify(updated));
+        localStorage.setItem("filmichecker_recent", JSON.stringify(updated));
       } catch {}
       return updated;
     });
@@ -160,7 +160,7 @@ export default function HomePage() {
           </motion.div>
 
           <h1 className="font-playfair text-5xl sm:text-6xl font-bold text-white mb-4 leading-tight">
-            Cine<span className="text-gold-500">Scope</span>
+            Filmi<span className="text-gold-500">Checker</span>
           </h1>
 
           <p className="text-gray-400 font-sans text-base sm:text-lg max-w-md mx-auto leading-relaxed">

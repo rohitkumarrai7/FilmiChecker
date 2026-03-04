@@ -15,12 +15,12 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "CineScope — AI Movie Insight Builder",
+  title: "FilmiChecker — AI Movie Insight Builder",
   description:
     "Enter any IMDb movie ID to get AI-powered sentiment analysis, audience insights, cast details, and more.",
   keywords: ["movies", "IMDb", "sentiment analysis", "AI", "film insights"],
   openGraph: {
-    title: "CineScope — AI Movie Insight Builder",
+    title: "FilmiChecker — AI Movie Insight Builder",
     description: "AI-powered movie sentiment analysis and audience insights",
     type: "website",
   },
