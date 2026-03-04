@@ -9,6 +9,8 @@ export interface MovieData {
   poster: string;
   imdbRating: string;
   imdbVotes: string;
+  rtScore?: string;
+  metascore?: string;
 }
 
 export interface SentimentData {

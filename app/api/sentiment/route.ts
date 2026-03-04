@@ -8,6 +8,9 @@ interface SentimentRequestBody {
   genre: string;
   plot: string;
   imdbRating: string;
+  imdbVotes?: string;
+  rtScore?: string;
+  metascore?: string;
   reviews: string[];
 }
 
@@ -22,19 +25,33 @@ function buildPrompt(body: SentimentRequestBody): string {
   const reviewText =
     body.reviews.length > 0
       ? body.reviews.join("\n\n")
-      : "No reviews available, use metadata only";
+      : "No user reviews available";
+
+  // Build critical scores section from whatever data is available
+  const scoreLines: string[] = [];
+  if (body.imdbRating && body.imdbRating !== "N/A") {
+    const votes = body.imdbVotes && body.imdbVotes !== "N/A"
+      ? ` (${body.imdbVotes} votes)`
+      : "";
+    scoreLines.push(`IMDb: ${body.imdbRating}/10${votes}`);
+  }
+  if (body.rtScore) scoreLines.push(`Rotten Tomatoes: ${body.rtScore}`);
+  if (body.metascore) scoreLines.push(`Metacritic: ${body.metascore}`);
+  const criticalScores = scoreLines.length > 0
+    ? scoreLines.join(" | ")
+    : "N/A";
 
   return `You are a professional movie sentiment analyst.
 
 Movie: ${body.title} (${body.year})
 Genre: ${body.genre}
-IMDb Rating: ${body.imdbRating}/10
+Critical Scores: ${criticalScores}
 Plot: ${body.plot}
 
 Audience Reviews:
 ${reviewText}
 
-Analyze the above and respond ONLY in this exact JSON format with no extra text:
+Analyze the above (use critical scores as a proxy for audience sentiment when reviews are limited) and respond ONLY in this exact JSON format with no extra text:
 {
   "summary": "3-4 sentence summary of overall audience sentiment, what viewers loved and criticized",
   "classification": "positive" OR "mixed" OR "negative",

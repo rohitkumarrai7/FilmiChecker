@@ -113,8 +113,8 @@ export default function SentimentCard({
         >
           <span>⚠</span>
           <span>
-            Sentiment based on metadata — no user reviews were found for this
-            title. Analysis derived from plot, genre, and IMDb rating.
+            No user reviews fetched — analysis derived from IMDb rating, Rotten
+            Tomatoes, Metacritic scores, plot, and genre.
           </span>
         </motion.div>
       )}

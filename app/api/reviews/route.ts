@@ -70,11 +70,15 @@ export async function GET(request: NextRequest) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       if (status === 401 || status === 403) {
-        console.warn(`RapidAPI rejected key (${status}) — running without reviews`);
+        const errBody = error.response?.data;
+        console.warn(
+          `RapidAPI rejected key (${status}) — running without reviews.`,
+          `Response body: ${JSON.stringify(errBody)}`
+        );
       } else if (error.code === "ECONNABORTED") {
         console.warn("RapidAPI timed out — running without reviews");
       } else {
-        console.error("RapidAPI reviews error:", error.message);
+        console.error("RapidAPI reviews error:", error.message, error.response?.data);
       }
     } else {
       console.error("Unexpected reviews error:", error);

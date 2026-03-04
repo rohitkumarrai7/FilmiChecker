@@ -64,6 +64,9 @@ export default function HomePage() {
         genre: movie.genre,
         plot: movie.plot,
         imdbRating: movie.imdbRating,
+        imdbVotes: movie.imdbVotes,
+        rtScore: movie.rtScore,
+        metascore: movie.metascore,
         reviews,
       });
       setSentimentData(res.data);

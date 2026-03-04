@@ -42,6 +42,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Extract Rotten Tomatoes % and Metacritic score from OMDB Ratings array
+    const ratings: Array<{ Source: string; Value: string }> =
+      Array.isArray(data.Ratings) ? data.Ratings : [];
+    const rtEntry = ratings.find((r) => r.Source === "Rotten Tomatoes");
+    const metaEntry = ratings.find((r) => r.Source === "Metacritic");
+
     const movie: MovieData = {
       title: data.Title || "Unknown",
       year: data.Year || "N/A",
@@ -53,6 +59,8 @@ export async function GET(request: NextRequest) {
       poster: data.Poster !== "N/A" ? data.Poster : "",
       imdbRating: data.imdbRating || "N/A",
       imdbVotes: data.imdbVotes || "N/A",
+      ...(rtEntry ? { rtScore: rtEntry.Value } : {}),
+      ...(metaEntry ? { metascore: metaEntry.Value } : {}),
     };
 
     return NextResponse.json(movie);
