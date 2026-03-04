@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import axios from "axios";
 import SearchInput from "@/components/SearchInput";
@@ -9,74 +9,123 @@ import CastList from "@/components/CastList";
 import PlotSection from "@/components/PlotSection";
 import SentimentCard from "@/components/SentimentCard";
 import SkeletonLoader from "@/components/SkeletonLoader";
+import PopularMovies from "@/components/PopularMovies";
 import type { MovieData, SentimentData, ReviewsData } from "@/types";
+
+const MAX_RECENT = 5;
 
 export default function HomePage() {
   const [movieData, setMovieData] = useState<MovieData | null>(null);
   const [sentimentData, setSentimentData] = useState<SentimentData | null>(null);
   const [usedFallback, setUsedFallback] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // Two separate loading states so movie card appears before sentiment finishes
+  const [isLoadingMovie, setIsLoadingMovie] = useState(false);
+  const [isLoadingSentiment, setIsLoadingSentiment] = useState(false);
+
+  // Two separate error states so a sentiment failure never hides the movie card
+  const [movieError, setMovieError] = useState<string | null>(null);
+  const [sentimentError, setSentimentError] = useState<string | null>(null);
+
   const [hasSearched, setHasSearched] = useState(false);
+  const [currentImdbId, setCurrentImdbId] = useState<string>("");
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
-  async function handleSearch(imdbId: string) {
-    setIsLoading(true);
-    setError(null);
-    setMovieData(null);
-    setSentimentData(null);
-    setHasSearched(true);
-
+  // Load recent searches from localStorage on first render
+  useEffect(() => {
     try {
-      // Fetch movie details and reviews in parallel
-      const [movieResponse, reviewsResponse] = await Promise.all([
-        axios.get<MovieData>(`/api/movie?id=${imdbId}`),
-        axios.get<ReviewsData>(`/api/reviews?id=${imdbId}`),
-      ]);
+      const stored = localStorage.getItem("cinescope_recent");
+      if (stored) setRecentSearches(JSON.parse(stored));
+    } catch {
+      // localStorage unavailable (SSR / private browsing edge case)
+    }
+  }, []);
 
-      const movie = movieResponse.data;
-      const reviewsData = reviewsResponse.data;
+  function saveRecent(imdbId: string) {
+    setRecentSearches((prev) => {
+      const updated = [imdbId, ...prev.filter((id) => id !== imdbId)].slice(
+        0,
+        MAX_RECENT
+      );
+      try {
+        localStorage.setItem("cinescope_recent", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }
 
-      setMovieData(movie);
-      setUsedFallback(reviewsData.fallback);
-
-      // Fetch sentiment using movie + reviews
-      const sentimentResponse = await axios.post<SentimentData>("/api/sentiment", {
+  async function fetchSentiment(movie: MovieData, reviews: string[]) {
+    setIsLoadingSentiment(true);
+    setSentimentError(null);
+    try {
+      const res = await axios.post<SentimentData>("/api/sentiment", {
         title: movie.title,
         year: movie.year,
         genre: movie.genre,
         plot: movie.plot,
         imdbRating: movie.imdbRating,
-        reviews: reviewsData.reviews,
+        reviews,
       });
+      setSentimentData(res.data);
+    } catch (err) {
+      const msg = axios.isAxiosError(err)
+        ? err.response?.data?.message || "Failed to generate AI sentiment."
+        : "Failed to generate AI sentiment.";
+      setSentimentError(msg);
+    } finally {
+      setIsLoadingSentiment(false);
+    }
+  }
 
-      setSentimentData(sentimentResponse.data);
+  async function handleSearch(imdbId: string) {
+    setIsLoadingMovie(true);
+    setMovieError(null);
+    setSentimentError(null);
+    setMovieData(null);
+    setSentimentData(null);
+    setHasSearched(true);
+    setCurrentImdbId(imdbId);
+
+    try {
+      const [movieRes, reviewsRes] = await Promise.all([
+        axios.get<MovieData>(`/api/movie?id=${imdbId}`),
+        axios.get<ReviewsData>(`/api/reviews?id=${imdbId}`),
+      ]);
+
+      const movie = movieRes.data;
+      const reviewsData = reviewsRes.data;
+
+      setMovieData(movie);
+      setUsedFallback(reviewsData.fallback);
+      saveRecent(imdbId);
+
+      // Start sentiment fetch — runs independently so movie card shows immediately
+      fetchSentiment(movie, reviewsData.reviews);
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
         const message = err.response?.data?.message;
-
         if (status === 404) {
-          setError(
-            "No movie found for this IMDb ID. Please check the ID and try again."
-          );
+          setMovieError("No movie found for this IMDb ID. Please check and try again.");
         } else if (status === 400) {
-          setError(message || "Invalid IMDb ID format.");
+          setMovieError(message || "Invalid IMDb ID format.");
         } else {
-          setError(
-            message || "Something went wrong. Please try again in a moment."
-          );
+          setMovieError(message || "Something went wrong. Please try again.");
         }
       } else {
-        setError("Unexpected error. Please try again.");
+        setMovieError("Unexpected error. Please try again.");
       }
     } finally {
-      setIsLoading(false);
+      setIsLoadingMovie(false);
     }
   }
 
+  const isLoading = isLoadingMovie;
+  const showResults = !isLoadingMovie && !!movieData;
+
   return (
     <div className="min-h-screen bg-navy-900 relative">
-      {/* Subtle radial glow background */}
+      {/* Radial gold glow */}
       <div
         className="absolute inset-0 pointer-events-none"
         aria-hidden="true"
@@ -92,7 +141,7 @@ export default function HomePage() {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: "easeOut" }}
-          className="text-center mb-12"
+          className="text-center mb-10"
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
@@ -108,8 +157,7 @@ export default function HomePage() {
           </motion.div>
 
           <h1 className="font-playfair text-5xl sm:text-6xl font-bold text-white mb-4 leading-tight">
-            Cine
-            <span className="text-gold-500">Scope</span>
+            Cine<span className="text-gold-500">Scope</span>
           </h1>
 
           <p className="text-gray-400 font-sans text-base sm:text-lg max-w-md mx-auto leading-relaxed">
@@ -118,12 +166,51 @@ export default function HomePage() {
           </p>
         </motion.header>
 
-        {/* Search form */}
-        <div className="mb-12">
+        {/* Search */}
+        <div className="mb-4">
           <SearchInput onSearch={handleSearch} isLoading={isLoading} />
         </div>
 
-        {/* Loading skeleton */}
+        {/* Recent searches */}
+        <AnimatePresence>
+          {recentSearches.length > 0 && !isLoading && (
+            <motion.div
+              key="recent"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="flex flex-wrap items-center gap-2 mb-8 justify-center"
+            >
+              <span className="text-gray-600 text-xs font-sans">Recent:</span>
+              {recentSearches.map((id) => (
+                <button
+                  key={id}
+                  onClick={() => handleSearch(id)}
+                  className="px-2.5 py-1 rounded-md bg-navy-800 border border-white/5
+                             text-gray-500 hover:text-gold-400 hover:border-gold-500/30
+                             text-xs font-sans transition-colors duration-200"
+                >
+                  {id}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Empty state */}
+        {!hasSearched && !isLoading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="flex flex-col gap-8 mb-8"
+          >
+            <PopularMovies onSelect={handleSearch} />
+          </motion.div>
+        )}
+
+        {/* Skeleton while loading movie */}
         <AnimatePresence>
           {isLoading && (
             <motion.div
@@ -138,11 +225,11 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
-        {/* Error state */}
+        {/* Movie-level error (replaces everything) */}
         <AnimatePresence>
-          {!isLoading && error && (
+          {!isLoading && movieError && (
             <motion.div
-              key="error"
+              key="movie-error"
               initial={{ opacity: 0, scale: 0.97 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
@@ -151,14 +238,22 @@ export default function HomePage() {
               role="alert"
             >
               <div className="text-5xl mb-4">🎬</div>
-              <p className="text-red-400 font-sans text-base">{error}</p>
+              <p className="text-red-400 font-sans text-base mb-4">{movieError}</p>
+              <button
+                onClick={() => handleSearch(currentImdbId)}
+                className="px-5 py-2 rounded-lg bg-navy-800 border border-white/10
+                           text-gray-400 hover:text-white hover:border-white/20
+                           text-sm font-sans transition-colors duration-200"
+              >
+                Try again
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Results */}
         <AnimatePresence>
-          {!isLoading && movieData && (
+          {showResults && (
             <motion.div
               key="results"
               initial={{ opacity: 0 }}
@@ -167,91 +262,86 @@ export default function HomePage() {
               transition={{ duration: 0.4 }}
               className="flex flex-col gap-6"
             >
-              {/* Movie card */}
-              <MovieCard movie={movieData} />
+              <MovieCard movie={movieData!} />
 
-              {/* Cast list */}
-              {movieData.actors && movieData.actors !== "N/A" && (
-                <CastList actors={movieData.actors} />
+              {movieData!.actors && movieData!.actors !== "N/A" && (
+                <CastList actors={movieData!.actors} />
               )}
 
-              {/* Plot */}
-              {movieData.plot && movieData.plot !== "N/A" && (
-                <PlotSection plot={movieData.plot} />
+              {movieData!.plot && movieData!.plot !== "N/A" && (
+                <PlotSection plot={movieData!.plot} />
               )}
 
-              {/* Sentiment (shown only once available) */}
-              <AnimatePresence>
-                {sentimentData && (
+              {/* Sentiment section */}
+              <AnimatePresence mode="wait">
+                {sentimentData ? (
                   <SentimentCard
+                    key="sentiment"
                     sentiment={sentimentData}
                     usedFallback={usedFallback}
                   />
-                )}
-              </AnimatePresence>
-
-              {/* Sentiment still loading */}
-              {!sentimentData && !error && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="w-full bg-navy-800 rounded-2xl border border-white/5 p-8
-                             flex items-center justify-center gap-3"
-                >
-                  <svg
-                    className="animate-spin h-5 w-5 text-gold-500"
-                    viewBox="0 0 24 24"
-                    fill="none"
+                ) : isLoadingSentiment ? (
+                  <motion.div
+                    key="sentiment-loading"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="w-full bg-navy-800 rounded-2xl border border-white/5 p-8
+                               flex items-center justify-center gap-3"
                   >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  <span className="text-gray-400 font-sans text-sm">
-                    Generating AI sentiment analysis…
-                  </span>
-                </motion.div>
-              )}
+                    <svg
+                      className="animate-spin h-5 w-5 text-gold-500"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12" cy="12" r="10"
+                        stroke="currentColor" strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    <span className="text-gray-400 font-sans text-sm">
+                      Generating AI sentiment analysis…
+                    </span>
+                  </motion.div>
+                ) : sentimentError ? (
+                  <motion.div
+                    key="sentiment-error"
+                    initial={{ opacity: 0, scale: 0.97 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="w-full bg-navy-800 rounded-2xl border border-red-500/20
+                               p-8 text-center"
+                    role="alert"
+                  >
+                    <p className="text-red-400 font-sans text-sm mb-4">
+                      {sentimentError}
+                    </p>
+                    <button
+                      onClick={() =>
+                        fetchSentiment(movieData!, [])
+                      }
+                      className="px-5 py-2 rounded-lg bg-gold-500/10 border border-gold-500/30
+                                 text-gold-400 hover:bg-gold-500/20
+                                 text-sm font-sans font-medium transition-colors duration-200"
+                    >
+                      Retry AI Analysis
+                    </button>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Empty state — before any search */}
-        {!hasSearched && !isLoading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="text-center py-10"
-          >
-            <p className="text-gray-600 font-sans text-sm">
-              Try{" "}
-              <button
-                onClick={() => handleSearch("tt0133093")}
-                className="text-gold-500/70 hover:text-gold-400 transition-colors
-                           underline underline-offset-2 cursor-pointer"
-              >
-                tt0133093
-              </button>{" "}
-              (The Matrix) to see it in action
-            </p>
-          </motion.div>
-        )}
       </div>
 
-      {/* Footer */}
       <footer className="text-center py-6 text-gray-700 text-xs font-sans">
-        Built with Next.js · OMDB · RapidAPI IMDb · Arcee AI
+        Built with Next.js · OMDB · RapidAPI IMDb · OpenRouter AI
       </footer>
     </div>
   );
