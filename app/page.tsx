@@ -251,7 +251,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="text-center py-6 text-gray-700 text-xs font-sans">
-        Built with Next.js · OMDB · TMDB · Arcee AI
+        Built with Next.js · OMDB · RapidAPI IMDb · Arcee AI
       </footer>
     </div>
   );
