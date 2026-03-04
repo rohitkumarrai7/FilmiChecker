@@ -11,6 +11,13 @@ interface SentimentRequestBody {
   reviews: string[];
 }
 
+// Free models tried in order — if one is unavailable, the next is attempted
+const OPENROUTER_MODELS = [
+  "google/gemma-2-9b-it:free",
+  "mistralai/mistral-7b-instruct:free",
+  "qwen/qwen-2.5-7b-instruct:free",
+];
+
 function buildPrompt(body: SentimentRequestBody): string {
   const reviewText =
     body.reviews.length > 0
@@ -38,7 +45,6 @@ Analyze the above and respond ONLY in this exact JSON format with no extra text:
 }
 
 function parseAIResponse(content: string): SentimentData {
-  // Strip markdown code fences if present
   const cleaned = content
     .replace(/```json\s*/gi, "")
     .replace(/```\s*/g, "")
@@ -64,6 +70,68 @@ function parseAIResponse(content: string): SentimentData {
     positiveScore: Math.min(100, Math.max(0, Number(parsed.positiveScore) || 50)),
     negativeScore: Math.min(100, Math.max(0, Number(parsed.negativeScore) || 50)),
   };
+}
+
+/** Try each free model in sequence until one succeeds. */
+async function callOpenRouter(
+  apiKey: string,
+  prompt: string
+): Promise<string> {
+  let lastError: unknown;
+
+  for (const model of OPENROUTER_MODELS) {
+    try {
+      const response = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          model,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 800,
+          temperature: 0.3,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://cinescope.vercel.app",
+            "X-Title": "CineScope",
+          },
+          timeout: 30000,
+        }
+      );
+
+      const content: string =
+        response.data?.choices?.[0]?.message?.content || "";
+
+      if (!content) {
+        console.warn(`Model ${model} returned empty content — trying next`);
+        continue;
+      }
+
+      console.log(`Sentiment generated using model: ${model}`);
+      return content;
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status;
+        const errMsg = err.response?.data?.error?.message || err.message;
+
+        // 404 = model endpoint gone, try next model
+        if (status === 404 || (errMsg && errMsg.includes("No endpoints found"))) {
+          console.warn(`Model ${model} unavailable (${status}) — trying next`);
+          lastError = err;
+          continue;
+        }
+
+        // Auth error — no point trying other models
+        if (status === 401 || status === 403) {
+          throw err;
+        }
+      }
+      lastError = err;
+    }
+  }
+
+  throw lastError ?? new Error("All OpenRouter models failed");
 }
 
 export async function POST(request: NextRequest) {
@@ -92,34 +160,7 @@ export async function POST(request: NextRequest) {
   const prompt = buildPrompt(body);
 
   try {
-    // Uses OpenRouter — supports the same OpenAI-compatible API format.
-    // The ARCEE_API_KEY env var holds the OpenRouter key (sk-or-v1-...).
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: "meta-llama/llama-3.1-8b-instruct:free",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 800,
-        temperature: 0.3,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://cinescope.vercel.app",
-          "X-Title": "CineScope",
-        },
-        timeout: 30000,
-      }
-    );
-
-    const content: string =
-      response.data?.choices?.[0]?.message?.content || "";
-
-    if (!content) {
-      throw new Error("Empty response from AI");
-    }
-
+    const content = await callOpenRouter(apiKey, prompt);
     const sentiment = parseAIResponse(content);
     return NextResponse.json(sentiment);
   } catch (error) {
@@ -130,9 +171,9 @@ export async function POST(request: NextRequest) {
           { status: 504 }
         );
       }
-      if (error.response?.status === 401) {
+      if (error.response?.status === 401 || error.response?.status === 403) {
         return NextResponse.json(
-          { message: "Invalid AI API key" },
+          { message: "Invalid OpenRouter API key" },
           { status: 401 }
         );
       }
