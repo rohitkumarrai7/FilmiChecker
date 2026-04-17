@@ -4,7 +4,7 @@ A full-stack Next.js 14 app that takes an IMDb movie ID and returns rich movie m
 
 ## Live Demo
 
-*(link will be added after Vercel deployment)*
+https://cine-scope-five-chi.vercel.app
 
 ## Setup Instructions
 
